@@ -318,7 +318,13 @@ void zebra_ns_startup_continue(struct zebra_dplane_ctx *ctx)
 		vlan_read(zns);
 		kernel_read_pbr_rules(zns);
 		kernel_read_tc_qdisc(zns);
-
+		break;
+		/*
+		 * IF we add additional dplane reads here make sure
+		 * that the ZEBRA_DPLANE_FINISHED_READING signal
+		 * is moved as well.
+		 */
+	case ZEBRA_DPLANE_FINISHED_READING:
 		/*
 		 * At this point FRR has requested and read a bunch
 		 * of data from the dplane about initial state of

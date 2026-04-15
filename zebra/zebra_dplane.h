@@ -104,6 +104,7 @@ enum zebra_dplane_startup_notifications {
 	ZEBRA_DPLANE_INTERFACES_READ,
 	ZEBRA_DPLANE_TUNNELS_READ,
 	ZEBRA_DPLANE_ADDRESSES_READ,
+	ZEBRA_DPLANE_FINISHED_READING,
 };
 /*
  * API between the zebra dataplane system and the main zebra processing
