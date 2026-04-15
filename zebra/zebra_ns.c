@@ -325,10 +325,11 @@ void zebra_ns_startup_continue(struct zebra_dplane_ctx *ctx)
 		 * the system.  Zebra now needs to initialize
 		 * the gr subsystem ( or the route sweeping
 		 * subsystem ) to allow that to properly work.
-		 * This must be done *immediately* after the
-		 * load of all data from the underlying dplane.
+		 * This must be done after all previously queued
+		 * route/nhg/etc. items from the dataplane have
+		 * been processed by the metaQ.
 		 */
-		zebra_main_router_started();
+		rib_add_finished_startup();
 		break;
 	}
 }
