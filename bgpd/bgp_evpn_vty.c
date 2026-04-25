@@ -2850,6 +2850,118 @@ static void evpn_show_routes_vni(struct vty *vty, struct bgp *bgp, vni_t vni,
 }
 
 /*
+ * Display BGP EVPN routing table -- across all RDs for a given IP
+ * prefix (vty handler). Walks both the main rib and evpn_unreach_rib
+ * so type-5 (IP Prefix) and EVPN unreach (IP Prefix Unreachability)
+ * routes are both reported.
+ */
+static void evpn_show_route_rd_all_prefix(struct vty *vty, struct bgp *bgp,
+					  struct prefix *ip_prefix, json_object *json)
+{
+	struct prefix_evpn p;
+	struct bgp_dest *rd_dest;
+	struct bgp_dest *rn;
+	struct bgp_path_info *pi;
+	afi_t afi = AFI_L2VPN;
+	safi_t safi = SAFI_EVPN;
+	uint32_t prefix_cnt = 0, path_cnt = 0;
+	struct bgp_table *ribs[2];
+	int n_ribs = 0;
+	int rib_idx;
+
+	ribs[n_ribs++] = bgp->rib[afi][safi];
+	if (bgp->evpn_unreach_rib)
+		ribs[n_ribs++] = bgp->evpn_unreach_rib;
+
+	for (rib_idx = 0; rib_idx < n_ribs; rib_idx++) {
+		struct bgp_table *rib = ribs[rib_idx];
+		bool is_unreach_rib = (rib == bgp->evpn_unreach_rib);
+
+		if (!rib)
+			continue;
+
+		for (rd_dest = bgp_table_top(rib); rd_dest; rd_dest = bgp_route_next(rd_dest)) {
+			json_object *json_paths = NULL;
+			json_object *json_rd = NULL;
+			char rd_str[RD_ADDRSTRLEN];
+			const struct prefix *rd_destp = bgp_dest_get_prefix(rd_dest);
+			struct bgp_table *table;
+			uint32_t local_path_cnt = 0;
+
+			table = bgp_dest_get_bgp_table_info(rd_dest);
+			if (table == NULL)
+				continue;
+
+			/* Build the appropriate EVPN prefix for this rib. */
+			build_type5_prefix_from_ip_prefix(&p, ip_prefix);
+			if (is_unreach_rib)
+				p.prefix.route_type = BGP_EVPN_IP_PREFIX_UNREACH_ROUTE;
+
+			rn = bgp_safi_node_lookup(rib, safi, (struct prefix *)&p,
+						  (struct prefix_rd *)rd_destp);
+			if (!rn)
+				continue;
+			if (!bgp_dest_has_bgp_path_info_data(rn)) {
+				bgp_dest_unlock_node(rn);
+				continue;
+			}
+
+			prefix_rd2str((struct prefix_rd *)rd_destp, rd_str, sizeof(rd_str),
+				      bgp->asnotation);
+
+			if (json) {
+				json_rd = json_object_new_object();
+				json_paths = json_object_new_array();
+			}
+
+			bgp_evpn_show_route_rd_header(vty, rd_dest, json_rd, rd_str, RD_ADDRSTRLEN);
+
+			route_vty_out_detail_header(vty, bgp, rn, bgp_dest_get_prefix(rn),
+						    (struct prefix_rd *)rd_destp, afi, safi,
+						    json_rd, false);
+
+			for (pi = bgp_dest_get_bgp_path_info(rn); pi; pi = pi->next) {
+				route_vty_out_detail(vty, bgp, rn, bgp_dest_get_prefix(rn), pi,
+						     afi, safi, RPKI_NOT_BEING_USED, json_paths);
+				local_path_cnt++;
+			}
+
+			path_cnt += local_path_cnt;
+
+			if (json) {
+				if (local_path_cnt) {
+					json_object_object_add(json_rd, "paths", json_paths);
+					json_object_object_add(json, rd_str, json_rd);
+				} else {
+					/* Defensive: parent-add was skipped, so
+					 * release the per-iteration objects to
+					 * avoid leaking them with the parent.
+					 */
+					json_object_free(json_paths);
+					json_object_free(json_rd);
+				}
+			}
+
+			if (local_path_cnt)
+				prefix_cnt++;
+
+			bgp_dest_unlock_node(rn);
+		}
+	}
+
+	if (json) {
+		json_object_int_add(json, "numPrefix", prefix_cnt);
+		json_object_int_add(json, "numPaths", path_cnt);
+	} else {
+		if (prefix_cnt == 0)
+			vty_out(vty, "%% Network not in table\n");
+		else
+			vty_out(vty, "\nDisplayed %u prefixes (%u paths)\n", prefix_cnt, path_cnt);
+	}
+}
+
+
+/*
  * Display BGP EVPN routing table -- for specific RD and MAC and/or
  * IP (vty handler). By definition, only matching type-2 route will be
  * displayed.
@@ -5248,7 +5360,7 @@ DEFUN(show_bgp_l2vpn_evpn_route_rd_macip,
  */
 DEFUN(show_bgp_l2vpn_evpn_route_rd_prefix,
       show_bgp_l2vpn_evpn_route_rd_prefix_cmd,
-      "show bgp l2vpn evpn route rd ASN:NN_OR_IP-ADDRESS:NN prefix <A.B.C.D/M|X:X::X:X/M> [json]",
+      "show bgp l2vpn evpn route rd <ASN:NN_OR_IP-ADDRESS:NN|all> prefix <A.B.C.D/M|X:X::X:X/M> [json]",
       SHOW_STR
       BGP_STR
       L2VPN_HELP_STR
@@ -5256,6 +5368,7 @@ DEFUN(show_bgp_l2vpn_evpn_route_rd_prefix,
       "EVPN route information\n"
       "Route Distinguisher\n"
       "ASN:XX or A.B.C.D:XX\n"
+      "All VPN Route Distinguishers\n"
       "prefix\n"
       "IP prefix\n"
       "IPv6 prefix\n"
@@ -5264,10 +5377,13 @@ DEFUN(show_bgp_l2vpn_evpn_route_rd_prefix,
 	struct bgp *bgp;
 	int ret;
 	int idx = 0;
-	struct prefix_rd prd;
-	struct prefix ip_prefix;
+	int idx_ext_community = 0;
+	struct prefix_rd prd = {};
+	struct prefix ip_prefix = {};
 	bool uj = false;
 	json_object *json = NULL;
+	bool rd_all = false;
+	int rd_all_idx = 0;
 
 	bgp = bgp_get_evpn();
 	if (!bgp)
@@ -5278,11 +5394,25 @@ DEFUN(show_bgp_l2vpn_evpn_route_rd_prefix,
 	if (uj)
 		json = json_object_new_object();
 
-	/* get the prd */
-	if (argv_find(argv, argc, "rd", &idx)) {
-		ret = str2prefix_rd(argv[idx + 1]->arg, &prd);
-		if (!ret) {
-			vty_out(vty, "%% Malformed Route Distinguisher\n");
+	/* The token after "rd" may be either the literal "all" or the
+	 * ASN:NN_OR_IP-ADDRESS:NN RD value. Check "all" first so we do not
+	 * pass it to str2prefix_rd(); otherwise fetch the RD by its CLI
+	 * placeholder token.
+	 */
+	rd_all = argv_find(argv, argc, "all", &rd_all_idx);
+	if (!rd_all) {
+		if (argv_find(argv, argc, "ASN:NN_OR_IP-ADDRESS:NN", &idx_ext_community)) {
+			ret = str2prefix_rd(argv[idx_ext_community]->arg, &prd);
+			if (!ret) {
+				vty_out(vty, "%% Malformed Route Distinguisher\n");
+				if (uj)
+					json_object_free(json);
+				return CMD_WARNING;
+			}
+		} else {
+			vty_out(vty, "%% Route Distinguisher is required\n");
+			if (uj)
+				json_object_free(json);
 			return CMD_WARNING;
 		}
 	}
@@ -5292,12 +5422,20 @@ DEFUN(show_bgp_l2vpn_evpn_route_rd_prefix,
 		ret = str2prefix(argv[idx + 1]->arg, &ip_prefix);
 		if (!ret) {
 			vty_out(vty, "prefix is malformed\n");
+			if (uj)
+				json_object_free(json);
 			return CMD_WARNING;
 		}
-	} else
+	} else {
+		if (uj)
+			json_object_free(json);
 		return CMD_WARNING;
+	}
 
-	evpn_show_route_rd_prefix(vty, bgp, &prd, &ip_prefix, json);
+	if (rd_all)
+		evpn_show_route_rd_all_prefix(vty, bgp, &ip_prefix, json);
+	else
+		evpn_show_route_rd_prefix(vty, bgp, &prd, &ip_prefix, json);
 
 	if (uj) {
 		vty_out(vty, "%s\n", json_object_to_json_string_ext(json, JSON_C_TO_STRING_PRETTY));
