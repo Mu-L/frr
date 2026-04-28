@@ -464,7 +464,9 @@ struct bgp_aggregate {
 		struct route_map *map;
 	} rmap;
 
-	/* Suppress-count. */
+	/* More-specific active routes contributing to this aggregate,
+	 * excluding aggregate routes (sub_type == BGP_ROUTE_AGGREGATE).
+	 */
 	unsigned long count;
 
 	/* Count of routes of origin type incomplete under this aggregate. */

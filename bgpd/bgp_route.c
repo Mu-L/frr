@@ -5384,8 +5384,8 @@ static void bgp_rib_withdraw(const struct prefix *p, struct bgp_dest *dest, stru
 		if (get_active_bdc_from_pi(pi, afi, safi)) {
 			/* Decrement BEFORE bgp_damp_withdraw sets
 			 * BGP_PATH_HISTORY, which is part of BGP_PATH_UNUSEABLE
-			 * and would cause bgp_remove_route_from_aggregate to
-			 * skip the decrement via the BGP_PATH_HOLDDOWN check.
+			 * and would cause bgp_aggregate_decrement to skip the
+			 * decrement via the BGP_PATH_HOLDDOWN check.
 			 */
 			bgp_aggregate_decrement(peer->bgp, p, pi, afi, safi);
 			if (bgp_damp_withdraw(pi, dest, afi, safi, 0) == BGP_DAMP_SUPPRESSED)
@@ -9972,13 +9972,6 @@ static void bgp_add_route_to_aggregate(struct bgp *bgp,
 	struct ecommunity *ecommunity = NULL;
 	struct lcommunity *lcommunity = NULL;
 
-	/* If the bgp instance is being deleted or self peer is deleted
-	 * then do not create aggregate route
-	 */
-	if (CHECK_FLAG(bgp->flags, BGP_FLAG_DELETE_IN_PROGRESS)
-	    || (bgp->peer_self == NULL))
-		return;
-
 	/* ORIGIN attribute: If at least one route among routes that are
 	 * aggregated has ORIGIN with the value INCOMPLETE, then the
 	 * aggregated route must have the ORIGIN attribute with the value
@@ -10092,19 +10085,6 @@ static void bgp_remove_route_from_aggregate(struct bgp *bgp, afi_t afi,
 	struct community *community = NULL;
 	struct ecommunity *ecommunity = NULL;
 	struct lcommunity *lcommunity = NULL;
-
-	/* If the bgp instance is being deleted or self peer is deleted
-	 * then do not create aggregate route
-	 */
-	if (CHECK_FLAG(bgp->flags, BGP_FLAG_DELETE_IN_PROGRESS)
-	    || (bgp->peer_self == NULL))
-		return;
-
-	if (BGP_PATH_HOLDDOWN(pi))
-		return;
-
-	if (pi->sub_type == BGP_ROUTE_AGGREGATE)
-		return;
 
 	if (aggregate->summary_only && AGGREGATE_MED_VALID(aggregate))
 		if (aggr_unsuppress_path(aggregate, pi)) {
@@ -10223,10 +10203,16 @@ void bgp_aggregate_increment(struct bgp *bgp, const struct prefix *p,
 	if (bgp_table_top_nolock(table) == NULL)
 		return;
 
+	if (CHECK_FLAG(bgp->flags, BGP_FLAG_DELETE_IN_PROGRESS) || (bgp->peer_self == NULL))
+		return;
+
 	if (p->prefixlen == 0)
 		return;
 
 	if (BGP_PATH_HOLDDOWN(pi))
+		return;
+
+	if (pi->sub_type == BGP_ROUTE_AGGREGATE)
 		return;
 
 	/* Note: do NOT guard this with bgp_check_advertise() / FIB state.
@@ -10266,7 +10252,16 @@ void bgp_aggregate_decrement(struct bgp *bgp, const struct prefix *p,
 	if (bgp_table_top_nolock(table) == NULL)
 		return;
 
+	if (CHECK_FLAG(bgp->flags, BGP_FLAG_DELETE_IN_PROGRESS) || (bgp->peer_self == NULL))
+		return;
+
 	if (p->prefixlen == 0)
+		return;
+
+	if (BGP_PATH_HOLDDOWN(del))
+		return;
+
+	if (del->sub_type == BGP_ROUTE_AGGREGATE)
 		return;
 
 	child = bgp_node_get(table, p);
