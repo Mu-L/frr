@@ -9678,12 +9678,6 @@ bool bgp_aggregate_route(struct bgp *bgp, const struct prefix *p, afi_t afi,
 		if (dest_p->prefixlen <= p->prefixlen)
 			continue;
 
-		/* If suppress fib is enabled and route not installed
-		 * in FIB, skip the route
-		 */
-		if (!bgp_check_advertise(bgp, dest, safi))
-			continue;
-
 		for (pi = bgp_dest_get_bgp_path_info(dest); (pi != NULL) && (next = pi->next, 1);
 		     pi = next) {
 			if (BGP_PATH_HOLDDOWN(pi))
@@ -10235,12 +10229,14 @@ void bgp_aggregate_increment(struct bgp *bgp, const struct prefix *p,
 	if (BGP_PATH_HOLDDOWN(pi))
 		return;
 
-	/* If suppress fib is enabled and route not installed
-	 * in FIB, do not update the aggregate route
+	/* Note: do NOT guard this with bgp_check_advertise() / FIB state.
+	 * Aggregate counting tracks BGP RIB presence, not FIB installation.
+	 * bgp_aggregate_increment() is called from bgp_update() before
+	 * bgp_process() is queued, so BGP_NODE_FIB_INSTALL_PENDING is never
+	 * set yet — a bgp_check_advertise() guard here would be a no-op for
+	 * its intended purpose and could incorrectly skip the count in other
+	 * callers (e.g. NHT, dampening reuse) where the flag may be set.
 	 */
-	if (!bgp_check_advertise(bgp, pi->net, safi))
-		return;
-
 	child = bgp_node_get(table, p);
 
 	/* Aggregate address configuration check. */
