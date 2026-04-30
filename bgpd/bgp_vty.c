@@ -6501,6 +6501,33 @@ DEFPY (neighbor_capability_fqdn,
 	return ret;
 }
 
+/*
+ * Send dynamic capability on the peer(s) that own the TCP BGP session.
+ * The peer-group template (PEER_STATUS_GROUP) stays Idle; members in
+ * peer->group->peer are Established.
+ */
+static void bgp_vty_capability_send_dynamic_peer_group(struct peer *peer, afi_t afi, safi_t safi,
+						       int capability_code, int action)
+{
+	struct listnode *node;
+	struct peer *member;
+	struct peer_group *pg;
+
+	if (!peer)
+		return;
+
+	if (CHECK_FLAG(peer->sflags, PEER_STATUS_GROUP)) {
+		pg = peer->group;
+		if (!pg)
+			return;
+		for (ALL_LIST_ELEMENTS_RO(pg->peer, node, member))
+			bgp_capability_send(member->connection, afi, safi, capability_code,
+					    action);
+	} else {
+		bgp_capability_send(peer->connection, afi, safi, capability_code, action);
+	}
+}
+
 /* neighbor capability extended next hop encoding */
 DEFUN (neighbor_capability_enhe,
        neighbor_capability_enhe_cmd,
@@ -6523,8 +6550,8 @@ DEFUN (neighbor_capability_enhe,
 
 	ret = peer_flag_set_vty(vty, argv[idx_peer]->arg, PEER_FLAG_CAPABILITY_ENHE);
 
-	bgp_capability_send(peer->connection, AFI_IP, SAFI_UNICAST, CAPABILITY_CODE_ENHE,
-			    CAPABILITY_ACTION_SET);
+	bgp_vty_capability_send_dynamic_peer_group(peer, AFI_IP, SAFI_UNICAST,
+						   CAPABILITY_CODE_ENHE, CAPABILITY_ACTION_SET);
 
 	return ret;
 }
@@ -6553,10 +6580,15 @@ DEFUN (no_neighbor_capability_enhe,
 	if (!peer)
 		return CMD_WARNING_CONFIG_FAILED;
 
-	ret = peer_flag_unset_vty(vty, argv[idx_peer]->arg, PEER_FLAG_CAPABILITY_ENHE);
+	/*
+	 * Send dynamic UNSET while PEER_FLAG_CAPABILITY_ENHE is still set.
+	 * bgp_capability_send() only encodes ENHE TLVs when that flag is set;
+	 * peer_flag_unset_vty clears it on members first.
+	 */
+	bgp_vty_capability_send_dynamic_peer_group(peer, AFI_IP, SAFI_UNICAST,
+						   CAPABILITY_CODE_ENHE, CAPABILITY_ACTION_UNSET);
 
-	bgp_capability_send(peer->connection, AFI_IP, SAFI_UNICAST, CAPABILITY_CODE_ENHE,
-			    CAPABILITY_ACTION_UNSET);
+	ret = peer_flag_unset_vty(vty, argv[idx_peer]->arg, PEER_FLAG_CAPABILITY_ENHE);
 
 	return ret;
 }
