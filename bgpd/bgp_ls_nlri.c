@@ -3531,6 +3531,23 @@ static int parse_node_name(struct stream *s, uint16_t length, struct bgp_ls_attr
 	attr->node_name = XCALLOC(MTYPE_BGP_LS_ATTR, length + 1);
 	stream_get(attr->node_name, s, length);
 	attr->node_name[length] = '\0';
+
+	/*
+	 * Reject names containing embedded NUL or non-printable characters to
+	 * prevent log spoofing and deduplication bypass (RFC 9552 Section 5.3.1.3
+	 * implies printable hostname).
+	 */
+	for (uint16_t i = 0; i < length; i++) {
+		if ((unsigned char)attr->node_name[i] < 0x20 ||
+		    (unsigned char)attr->node_name[i] > 0x7E) {
+			flog_warn(EC_BGP_UPDATE_RCV,
+				  "BGP-LS: Node Name TLV contains non-printable character at byte %u, rejecting",
+				  i);
+			XFREE(MTYPE_BGP_LS_ATTR, attr->node_name);
+			return -1;
+		}
+	}
+
 	SET_FLAG(attr->present_tlvs, BGP_LS_ATTR_NODE_NAME_BIT);
 
 	return 0;
@@ -3907,6 +3924,19 @@ static int parse_link_name(struct stream *s, uint16_t length, struct bgp_ls_attr
 	attr->link_name = XCALLOC(MTYPE_BGP_LS_ATTR, length + 1);
 	stream_get(attr->link_name, s, length);
 	attr->link_name[length] = '\0';
+
+	/* Reject names containing embedded NUL or non-printable characters. */
+	for (uint16_t i = 0; i < length; i++) {
+		if ((unsigned char)attr->link_name[i] < 0x20 ||
+		    (unsigned char)attr->link_name[i] > 0x7E) {
+			flog_warn(EC_BGP_UPDATE_RCV,
+				  "BGP-LS: Link Name TLV contains non-printable character at byte %u, rejecting",
+				  i);
+			XFREE(MTYPE_BGP_LS_ATTR, attr->link_name);
+			return -1;
+		}
+	}
+
 	SET_FLAG(attr->present_tlvs, BGP_LS_ATTR_LINK_NAME_BIT);
 
 	return 0;
