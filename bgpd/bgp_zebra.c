@@ -3086,12 +3086,15 @@ static int bgp_zebra_route_notify_owner(int command, struct zclient *zclient,
 			zlog_debug("route %pBD : INSTALLED", dest);
 		/* Find the best route */
 		for (pi = dest->info; pi; pi = pi->next) {
-			/* Process aggregate route */
-			bgp_aggregate_increment(bgp, &p, pi, afi, safi);
 			if (CHECK_FLAG(pi->flags, BGP_PATH_SELECTED))
 				new_select = pi;
 		}
-		/* Advertise the route */
+		/* Advertise the route.
+		 * Note: do NOT call bgp_aggregate_increment() here.
+		 * The increment already happened in bgp_update() before
+		 * bgp_process() was queued; calling it again here would
+		 * double-count the route in aggregate->count.
+		 */
 		if (new_select)
 			group_announce_route(bgp, afi, safi, dest, new_select);
 		else {
@@ -3136,13 +3139,18 @@ static int bgp_zebra_route_notify_owner(int command, struct zclient *zclient,
 		UNSET_FLAG(dest->flags, BGP_NODE_FIB_INSTALL_PENDING);
 		UNSET_FLAG(dest->flags, BGP_NODE_FIB_INSTALLED);
 		for (pi = bgp_dest_get_bgp_path_info(dest); pi; pi = pi->next) {
-			bgp_aggregate_decrement(bgp, &p, pi, afi, safi);
 			if (CHECK_FLAG(pi->flags, BGP_PATH_SELECTED))
 				new_select = pi;
 		}
 		if (new_select)
 			group_announce_route(bgp, afi, safi, dest, new_select);
-		/* No action required */
+		/* Note: do NOT call bgp_aggregate_decrement() here.  The BGP
+		 * path is still present in the RIB with BGP_PATH_VALID set;
+		 * only the FIB lost to a better admin-distance route.
+		 * Aggregate counting tracks BGP RIB presence, not FIB state.
+		 * Decrementing here would underflow the count when the route is
+		 * later properly withdrawn via bgp_rib_remove().
+		 */
 		break;
 	case ZAPI_ROUTE_REMOVE_FAIL:
 		zlog_warn("%s: Route %pBD failure to remove", __func__, dest);
