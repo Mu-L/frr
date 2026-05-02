@@ -5466,6 +5466,44 @@ Displaying Routes by Route Distinguisher
    can be supplied to the command to only display matching prefixes in the
    specified RD.
 
+.. clicmd:: show bgp l2vpn evpn route rd <all|RD> prefix <A.B.C.D/M|X:X::X:X/M> [json]
+
+.. clicmd:: show bgp evpn route rd <all|RD> prefix <A.B.C.D/M|X:X::X:X/M> [json]
+
+   For EVPN Type 5 (prefix) routes, an IPv4 or IPv6 prefix can be supplied to
+   only display matching prefixes in the specified RD, or across all RDs with
+   ``all``.
+
+   Example output:
+
+   .. code-block:: frr
+
+      bordertor-11# show bgp l2vpn evpn route rd all prefix 2001:db8:1:1::/64
+      Route Distinguisher: 192.0.2.2:8
+      BGP routing table entry for 192.0.2.2:8:[5]:[0]:[64]:[2001:db8:1:1::]
+      Paths: (1 available, best #1)
+        Advertised to peers:
+        leaf-11(swp1) leaf-12(swp2)
+        Route [5]:[0]:[64]:[2001:db8:1:1::] VNI 104001
+        655000
+          192.0.2.1 (bordertor-11) from 0.0.0.0 (192.0.2.1)
+            Origin incomplete, metric 0, valid, sourced, local, bestpath-from-AS 655000, best (First path received)
+            Extended Community: ET:8 RT:60176:104001 Rmac:00:01:00:00:01:08
+            Last update: Thu Apr 30 17:46:31 2026
+      Route Distinguisher: 192.0.2.6:9
+      BGP routing table entry for 192.0.2.6:9:[5]:[0]:[64]:[2001:db8:1:1::]
+      Paths: (1 available, best #1)
+        Advertised to peers:
+        leaf-11(swp1) leaf-12(swp2)
+        Route [5]:[0]:[64]:[2001:db8:1:1::] VNI 104002
+        655000
+          192.0.2.1 (bordertor-11) from 0.0.0.0 (192.0.2.1)
+            Origin incomplete, metric 0, valid, sourced, local, bestpath-from-AS 655000, best (First path received)
+            Extended Community: ET:8 RT:60176:104002 Rmac:00:01:00:00:01:08
+            Last update: Thu Apr 30 17:46:31 2026
+
+      Displayed 2 prefixes (2 paths)
+
 Displaying Update Group Information
 -----------------------------------
 
