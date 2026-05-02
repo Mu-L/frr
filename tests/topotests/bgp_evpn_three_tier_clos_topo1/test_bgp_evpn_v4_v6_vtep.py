@@ -2372,7 +2372,7 @@ def test_evpn_vtep_on_uplink_flap(tgen_and_ip_version):
     _, result = topotest.run_and_expect(test_func, None, count=60, wait=1)
     assert (
         result is None
-    ), "tor-21: remote VTEPs not present before uplink flap: {}".format(result)
+    ), f"tor-21: remote VTEPs not present before uplink flap: {result}"
 
     try:
         logger.info(
@@ -2387,9 +2387,7 @@ def test_evpn_vtep_on_uplink_flap(tgen_and_ip_version):
             l3vni_list,
         )
         _, result = topotest.run_and_expect(test_func, None, count=60, wait=1)
-        assert (
-            result is None
-        ), "tor-21: stale VTEP entries after uplink down: {}".format(result)
+        assert result is None, f"tor-21: stale VTEP entries after uplink down: {result}"
         logger.info("tor-21: no stale VTEP entries after uplinks down")
 
         logger.info("tor-21: bringing uplinks swp1 and swp2 up")
@@ -2405,7 +2403,7 @@ def test_evpn_vtep_on_uplink_flap(tgen_and_ip_version):
         _, result = topotest.run_and_expect(test_func, None, count=60, wait=1)
         assert (
             result is None
-        ), "tor-21: remote VTEPs not restored after uplink up: {}".format(result)
+        ), f"tor-21: remote VTEPs not restored after uplink up: {result}"
         logger.info("tor-21: remote VTEPs restored after uplinks up")
     finally:
         router.run("ip link set dev swp1 up 2>/dev/null || true")
