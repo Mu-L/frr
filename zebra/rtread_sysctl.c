@@ -105,6 +105,7 @@ void kernel_read_pbr_rules(struct zebra_ns *zns)
 
 void kernel_read_tc_qdisc(struct zebra_ns *zns)
 {
+	zebra_dplane_startup_stage(zns, ZEBRA_DPLANE_FINISHED_READING);
 }
 
 void vlan_read(struct zebra_ns *zns)
