@@ -14569,9 +14569,19 @@ static int bgp_show_summary(struct vty *vty, struct bgp *bgp, int afi, int safi,
 			else if (peer->connection->su.sa.sa_family == AF_INET)
 				json_object_string_add(json_peer, "idType",
 						       "ipv4");
-			else if (peer->connection->su.sa.sa_family == AF_INET6)
+			else if (peer->connection->su.sa.sa_family == AF_INET6) {
 				json_object_string_add(json_peer, "idType",
 						       "ipv6");
+				if (IN6_IS_ADDR_LINKLOCAL(&peer->connection->su.sin6.sin6_addr)) {
+					ifindex_t scope_id =
+						peer->connection->su.sin6.sin6_scope_id;
+
+					json_object_int_add(json_peer, "scopeId", scope_id);
+					json_object_string_add(json_peer, "scopeIfName",
+							       ifindex2ifname(scope_id,
+									      bgp->vrf_id));
+				}
+			}
 			json_object_object_add(json_peers, peer->host,
 					       json_peer);
 		} else {
