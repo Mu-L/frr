@@ -3283,10 +3283,15 @@ static inline void bgp_update_gr_completion(void)
 static inline bool bgp_gr_is_forwarding_preserved(struct bgp *bgp)
 {
 	/*
-	 * Is forwarding state preserved? Based either on config
-	 * or if BGP restarted gracefully.
-	 * TBD: Additional AFI/SAFI based checks etc.
+	 * F-bit should only be set when a graceful restart is actually
+	 * in progress (t_startup running or GR not yet complete).
+	 * If there is no restart (e.g. port flap), F-bit must be 0
+	 * regardless of preserve-fw-state config or -K flag.
+	 * This aligns F-bit logic with R-bit logic per RFC 4724.
 	 */
+	if (!(bgp->t_startup || bgp_in_graceful_restart()))
+		return false;
+
 	return (CHECK_FLAG(bm->flags, BM_FLAG_GRACEFUL_RESTART) ||
 		CHECK_FLAG(bgp->flags, BGP_FLAG_GR_PRESERVE_FWD));
 }
